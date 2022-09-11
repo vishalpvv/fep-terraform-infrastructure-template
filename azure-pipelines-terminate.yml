@@ -1,0 +1,217 @@
+# schedules:
+# - cron: "30 22 * * 1-5"
+#   displayName: Daily evening destroy run
+#   branches:
+#     include:
+#     - master
+
+parameters:
+- name: project
+  displayName: Project
+  type: string
+  default: enrichment
+  values:
+  - enrichment
+  - datafeed
+  - taskmanager
+  - pushapi
+  - push-api
+  - data-retention
+  - penny-black
+  - reference-db
+- name: environment
+  displayName: Environment
+  type: string
+  default: Development
+  values:
+  - Feature
+  - Development
+  - ST
+  - SIT
+- name: branchId
+  displayName: Branch Id
+  type: string
+  default: branch-id
+
+trigger: none
+
+pool:
+  vmImage: 'ubuntu-20.04'
+
+stages:
+- stage: TermianteTerraformInfrastructureInDev
+  condition: eq('${{parameters.environment}}', 'Development')
+  jobs:
+    - deployment: TerminateTerraformInfrastructureJobInDev
+      environment: Development
+      continueOnError: true
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - task: Bash@3
+              env:
+                AZURE_PASS: $(azure.password)
+              inputs:
+                targetType: 'inline'
+                script: |
+
+                  # Fail script if any of the commands fail
+                  set -e
+
+                  # Login into Azure
+                  chmod +x ./login_into_azure.sh
+                  ./login_into_azure.sh "${AZURE_USERNAME}" "${AZURE_PASS}"
+
+                  # Terminate the infrastructure in the target environment
+                  chmod +x ./terminate_terraform_infrastructure.sh
+                  ./terminate_terraform_infrastructure.sh ${{parameters.project}} dev
+
+                  echo 'Done'
+                  exit 0
+            - task: Bash@3
+              condition: and(failed(),eq('${{parameters.project}}', 'enrichment'))
+              inputs:
+                targetType: 'inline'
+                script: |
+
+                  # Fail script if any of the commands fail
+                  set -e
+
+                  RESOURCE_GROUP='ne-fep-npd-rg-pgdb01'
+
+                  echo "Deleting the preadvice db using Azure CLI as terraform failed.."
+                  ENRICHMENT_DB_NAME=$(az postgres server list -g ${RESOURCE_GROUP} -o yaml | grep 'name' | grep 'dev' | grep 'enrichment' )
+                  ENRICHMENT_DB_NAME=$( echo ${ENRICHMENT_DB_NAME} | awk '{print $2}')
+
+                  if [ -n "${ENRICHMENT_DB_NAME}" ]
+                    then
+                      az postgres server delete -g ${RESOURCE_GROUP} -n ${ENRICHMENT_DB_NAME} -y
+                  fi
+
+                  exit 0
+
+- stage: TerminateTerraformInfrastructureInFeatureBranch
+  condition:  and(eq('${{parameters.environment}}', 'Feature'), notIn('${{parameters.branchId}}', 'st', 'sit', 'int-sit','preprod','prod'))
+  jobs:
+    - deployment: TerminateTerraformInfrastructureJobInFeatureBranch
+      environment: Feature
+      continueOnError: true    
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - task: Bash@3
+              env:
+                AZURE_PASS: $(azure.password)
+              inputs:
+                targetType: 'inline'
+                script: |
+
+                  # Fail script if any of the commands fail
+                  set -e
+
+                  # # If the branch id was bot specified report error and exit
+                  # if [[ ${{parameters.branchId}} == 'branch-id' ]]; then
+                  #     echo 'Branch id must be specified. Cannot use the default value of "branch-id"' >&2
+                  #     echo 'Example value: 5635' >&2
+                  #     exit 1
+                  # fi
+                  
+                  # Login into Azure
+                  chmod +x ./login_into_azure.sh
+                  ./login_into_azure.sh "${AZURE_USERNAME}" "${AZURE_PASS}"
+                 
+                  # Terminate the infrastructure in the target environment
+                  chmod +x ./terminate_terraform_infrastructure.sh
+                  ./terminate_terraform_infrastructure.sh ${{parameters.project}}  ${{parameters.branchId}}
+                  
+                  echo 'Done'
+                  exit 0
+            - task: Bash@3
+              condition: and(failed(),eq('${{parameters.project}}', 'enrichment'))
+              inputs:
+                targetType: 'inline'
+                script: |
+
+                  # Fail script if any of the commands fail
+                  set -e
+
+                  RESOURCE_GROUP='ne-fep-npd-rg-pgdb01'
+
+                  echo "Deleting the preadvice db using Azure CLI as terraform failed.."
+                  ENRICHMENT_DB_NAME=$(az postgres server list -g ${RESOURCE_GROUP} -o yaml | grep 'name' | grep ${{parameters.branchId}} | grep 'enrichment' )
+                  ENRICHMENT_DB_NAME=$( echo ${ENRICHMENT_DB_NAME} | awk '{print $2}')
+                  
+                  if [ -n "${ENRICHMENT_DB_NAME}" ]
+                    then
+                      az postgres server delete -g ${RESOURCE_GROUP} -n ${ENRICHMENT_DB_NAME} -y
+                  fi
+                  
+                  exit 0
+
+# - stage: TermianteTerraformInfrastructureInST
+#   condition: eq('${{parameters.environment}}', 'ST')
+#   jobs:
+#     - deployment: TerminateTerraformInfrastructureJobInST
+#       environment: ST
+#       continueOnError: true
+#       strategy:
+#         runOnce:
+#           deploy:
+#             steps:
+#             - checkout: self
+#             - task: Bash@3
+#               env:
+#                 AZURE_PASS: $(azure.password)
+#               inputs:
+#                 targetType: 'inline'
+#                 script: |
+#                     # Fail script if any of the commands fail
+#                     set -e
+
+#                     # Login into Azure
+#                     chmod +x ./login_into_azure.sh
+#                     ./login_into_azure.sh "${AZURE_USERNAME}" "${AZURE_PASS}"
+
+#                     # Terminate the infrastructure in the target environment
+#                     chmod +x ./terminate_terraform_infrastructure.sh
+#                     ./terminate_terraform_infrastructure.sh ${{parameters.project}} st
+
+#                     echo 'Done'
+#                     exit 0
+
+
+# - stage: TermianteTerraformInfrastructureInSIT
+#   condition: eq('${{parameters.environment}}', 'SIT')
+#   jobs:
+#     - deployment: TerminateTerraformInfrastructureJobInSIT
+#       environment: SIT
+#       continueOnError: true
+#       strategy:
+#         runOnce:
+#           deploy:
+#             steps:
+#             - checkout: self
+#             - task: Bash@3
+#               env:
+#                 AZURE_PASS: $(azure.password)
+#               inputs:
+#                 targetType: 'inline'
+#                 script: |
+
+#                     # Fail script if any of the commands fail
+#                     set -e
+
+#                     # Login into Azure
+#                     chmod +x ./login_into_azure.sh
+#                     ./login_into_azure.sh "${AZURE_USERNAME}" "${AZURE_PASS}"
+
+#                     # Terminate the infrastructure in the target environment
+#                     chmod +x ./terminate_terraform_infrastructure.sh
+#                     ./terminate_terraform_infrastructure.sh ${{parameters.project}} sit
+
+#                     echo 'Done'
+#                     exit 0

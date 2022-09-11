@@ -1,0 +1,170 @@
+# schedules:
+# - cron: "0 3 * * 1-5"
+#   displayName: Daily morning build
+#   branches:
+#     include:
+#     - master
+
+parameters:
+- name: project
+  displayName: Project
+  type: string
+  default: enrichment
+  values:
+  - enrichment
+  - datafeed
+  - taskmanager
+  - push-api
+  - data-retention
+  - penny-black
+  - reference-db
+- name: environment
+  displayName: Environment
+  type: string
+  default: Development
+  values:
+  - Feature
+  - Development
+  - ST
+  - SIT
+- name: branchId
+  displayName: Branch Id
+  type: string
+  default: branch-id
+
+trigger: none
+
+pool:
+  vmImage: 'ubuntu-20.04'
+
+stages:
+- stage: DeployTerraformInfrastructureToDev
+  condition: eq('${{parameters.environment}}', 'Development')
+  jobs:
+    - deployment: DeployTerraformInfrastructureJobToDev
+      environment: Development
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - task: Bash@3
+              env:
+                AZURE_PASS: $(azure.password)
+              inputs:
+                targetType: 'inline'
+                script: |
+
+                  # Fail script if any of the commands fail
+                  set -e
+
+                  # Login into Azure
+                  chmod +x ./login_into_azure.sh
+                  ./login_into_azure.sh "${AZURE_USERNAME}" "${AZURE_PASS}"
+                 
+                  # Deploy the infrastructure to the target environment
+                  chmod +x ./deploy_terraform_infrastructure.sh
+                  ./deploy_terraform_infrastructure.sh ${{parameters.project}} dev
+
+                  echo 'Done'
+                  exit 0
+
+# - stage: DeployTerraformInfrastructureToST
+#   condition: eq('${{parameters.environment}}', 'ST')
+#   jobs:
+#     - deployment: DeployTerraformInfrastructureJobToST
+#       environment: ST
+#       strategy:
+#         runOnce:
+#           deploy:
+#             steps:
+#             - checkout: self
+#             - task: Bash@3
+#               env:
+#                 AZURE_PASS: $(azure.password)
+#               inputs:
+#                 targetType: 'inline'
+#                 script: |
+
+#                   # Fail script if any of the commands fail
+#                   set -e
+
+#                   # Login into Azure
+#                   chmod +x ./login_into_azure.sh
+#                   ./login_into_azure.sh "${AZURE_USERNAME}" "${AZURE_PASS}"
+                 
+#                   # Deploy the infrastructure to the target environment
+#                   chmod +x ./deploy_terraform_infrastructure.sh
+#                   ./deploy_terraform_infrastructure.sh ${{parameters.project}} st
+
+#                   echo 'Done'
+#                   exit 0
+
+- stage: DeployTerraformInfrastructureToFeatureBranch
+  condition: eq('${{parameters.environment}}', 'Feature')
+  jobs:
+    - deployment: DeployTerraformInfrastructureJobToFeatureBranch
+      environment: Feature
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - task: Bash@3
+              env:
+                AZURE_PASS: $(azure.password)
+              inputs:
+                targetType: 'inline'
+                script: |
+                  # Write your commands here
+
+                   # Fail script if any of the commands fail
+                  set -e
+
+                  # If the branch id was bot specified report error and exit
+                  if [[ ${{parameters.branchId}} == 'branch-id' ]]; then
+                      echo 'Branch id must be specified. Cannot use the default value of "branch-id"' >&2
+                      echo 'Example value: EPS-5635' >&2
+                      exit 1
+                  fi
+
+                  # Login into Azure
+                  chmod +x ./login_into_azure.sh
+                  ./login_into_azure.sh "${AZURE_USERNAME}" "${AZURE_PASS}"
+
+                  # Deploy the infrastructure to the target environment
+                  chmod +x ./deploy_terraform_infrastructure.sh
+                  ./deploy_terraform_infrastructure.sh ${{parameters.project}} ${{parameters.branchId}}
+
+                  echo 'Done'
+                  exit 0
+
+# - stage: DeployTerraformInfrastructureToSIT
+#   condition: eq('${{parameters.environment}}', 'SIT')
+#   jobs:
+#     - deployment: DeployTerraformInfrastructureJobToSIT
+#       environment: SIT
+#       strategy:
+#         runOnce:
+#           deploy:
+#             steps:
+#             - checkout: self
+#             - task: Bash@3
+#               env:
+#                 AZURE_PASS: $(azure.password)
+#               inputs:
+#                 targetType: 'inline'
+#                 script: |
+#                     # Fail script if any of the commands fail
+#                     set -e
+
+#                     # Login into Azure
+#                     chmod +x ./login_into_azure.sh
+#                     ./login_into_azure.sh "${AZURE_USERNAME}" "${AZURE_PASS}"
+
+#                     # Deploy the infrastructure to the target environment
+#                     chmod +x ./deploy_terraform_infrastructure.sh
+#                     ./deploy_terraform_infrastructure.sh ${{parameters.project}} sit
+
+#                     echo 'Done'
+#                     exit 0
